@@ -144,10 +144,23 @@ def get_online_channels(referer):
     try:
         response = requests.get("https://api.cdn-live.tv/api/v1/channels/?user=cdnlivetv&plan=free", headers=headers)
         response.raise_for_status()
-        # The response is a dictionary, and the channel list is inside the 'channels' key.
-        all_channels = response.json().get('channels', []) 
+        all_channels = response.json().get('channels', [])
         online_channels = [ch for ch in all_channels if ch.get('status') == 'online']
-        return online_channels
+        
+        sports_keywords = [
+            'sport', 'sports', 'football', 'cricket', 'espn','wwe','premier league', 'liga',
+            'dazn', 'tnt sports', 'sky sports', 'bein sports', 'fox sports',
+            'supersport', 'arena', 'match','sportv', 'premier', 'tyc sports', 'eleven sports', 'polsat sport','ssc', 'sony ten'
+        ]
+
+        sports_channels = []
+        for channel in online_channels:
+            channel_name = channel.get('name', '').lower()
+            for keyword in sports_keywords:
+                if keyword in channel_name:
+                    sports_channels.append(channel)
+                    break
+        return sports_channels
     except requests.exceptions.RequestException as req_err:
         print(f"Error fetching channel list: {req_err}")
         return []
@@ -163,7 +176,6 @@ if channels_data:
         f.write('#EXTM3U x-tvg-url="https://github.com/epgshare01/share/raw/master/epg_ripper_ALL_SOURCES1.xml.gz"\n')
         for channel in channels_data:
             print(f"Processing {channel.get('name')}...")
-            # The 'url' in the channel data is the player page, not the stream URL itself
             player_page_url = channel.get('url')
             if not player_page_url:
                 print(f"Skipping {channel.get('name')} due to missing URL.")
@@ -181,4 +193,4 @@ if channels_data:
 
     print("Playlist created successfully.")
 else:
-    print("No online channels found or an error occurred. Playlist not updated.")
+    print("No online sports channels found or an error occurred. Playlist not updated.")

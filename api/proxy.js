@@ -77,7 +77,8 @@ module.exports = async (req, res) => {
 
             // Pass through headers from the target stream (like Content-Type).
             targetResponse.headers.forEach((value, name) => {
-                if (!['access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers'].includes(name.toLowerCase())) {
+                // Let Vercel handle compression and transfer-encoding.
+                if (!['content-encoding', 'transfer-encoding', 'access-control-allow-origin', 'access-control-allow-methods', 'access-control-allow-headers'].includes(name.toLowerCase())) {
                     res.setHeader(name, value);
                 }
             });
@@ -92,9 +93,18 @@ module.exports = async (req, res) => {
                 return res.status(targetResponse.status).send(rewrittenBody);
             }
 
-            // Otherwise, stream the video content directly to the client.
-            res.status(targetResponse.status);
-            return targetResponse.body.pipe(res);
+            // *** FIX: Use a more robust streaming method for binary data ***
+            res.writeHead(targetResponse.status);
+            const reader = targetResponse.body.getReader();
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) {
+                    break;
+                }
+                res.write(value);
+            }
+            res.end();
+            return;
         }
 
         // --- 3. Welcome Message ---
@@ -110,27 +120,38 @@ module.exports = async (req, res) => {
 // This helper function remains the same.
 function rewritePlaylist(body, playlistUrl, referer, requestUrl) {
     const playlistBaseUrl = new URL(playlistUrl);
-    const workerBaseUrl = new URL(requestUrl);
-    workerBaseUrl.search = '';
+    // Use the request URL to build the base for our proxy.
+    const proxyBaseUrl = new URL(requestUrl);
+    proxyBaseUrl.search = ''; // Start with a clean URL
 
     return body.trim().split(/\r\n|\n|\r/).map(line => {
         line = line.trim();
         if (!line) return '';
 
-        if (line.startsWith('#')) {
-            const uriMatch = line.match(/URI="([^"]+)"/);
-            if (uriMatch && uriMatch[1]) {
-                const absoluteUri = new URL(uriMatch[1], playlistBaseUrl).href;
-                workerBaseUrl.searchParams.set('url', absoluteUri);
-                if (referer) workerBaseUrl.searchParams.set('referer', referer);
-                return line.replace(uriMatch[1], workerBaseUrl.toString());
+        // If the line is a URL (doesn't start with #)
+        if (!line.startsWith('#')) {
+            const absoluteUrl = new URL(line, playlistBaseUrl).href;
+            const proxyUrl = new URL(proxyBaseUrl.toString());
+            proxyUrl.searchParams.set('url', absoluteUrl);
+            if (referer) {
+                proxyUrl.searchParams.set('referer', referer);
             }
-            return line;
+            return proxyUrl.toString();
+        }
+        
+        // If the line has a URI attribute, rewrite that.
+        const uriMatch = line.match(/URI="([^"]+)"/);
+        if (uriMatch && uriMatch[1]) {
+            const absoluteUri = new URL(uriMatch[1], playlistBaseUrl).href;
+            const proxyUrl = new URL(proxyBaseUrl.toString());
+            proxyUrl.searchParams.set('url', absoluteUri);
+            if (referer) {
+                proxyUrl.searchParams.set('referer', referer);
+            }
+            return line.replace(uriMatch[1], proxyUrl.toString());
         }
 
-        const absoluteUrl = new URL(line, playlistBaseUrl).href;
-        workerBaseUrl.searchParams.set('url', absoluteUrl);
-        if (referer) workerBaseUrl.searchParams.set('referer', referer);
-        return workerBaseUrl.toString();
+        // Otherwise, return the line as is.
+        return line;
     }).join('\n');
 }

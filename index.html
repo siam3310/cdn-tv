@@ -3,48 +3,51 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>siam3310 - cdn-live.tv</title>
-    <!-- Bootstrap CSS -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- HLS.js for streaming -->
+    <title>Live TV Channels</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
-        body {
-            background-color: #1a1a1a;
+        :root {
+            --bs-body-bg: #121212;
+            --bs-border-color: rgba(255, 255, 255, 0.1);
         }
-        #player-container {
+        #player-column {
             position: sticky;
             top: 1rem;
+            align-self: flex-start;
+        }
+        #video-container {
             background-color: #000;
+            aspect-ratio: 16 / 9;
         }
         #videoPlayer {
             width: 100%;
-            height: auto;
+            height: 100%;
             background-color: #000;
         }
         #channel-list-container {
             height: 90vh;
             overflow-y: auto;
         }
-        .list-group-item {
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        .list-group-item:hover, .list-group-item.active {
-            background-color: #007bff;
-            border-color: #007bff;
-        }
         .channel-logo {
-            width: 30px;
-            height: 30px;
-            margin-right: 15px;
+            width: 32px;
+            height: 32px;
+            margin-right: 1rem;
             object-fit: contain;
-            background-color: #fff;
+            background-color: rgba(255, 255, 255, 0.8);
             border-radius: 4px;
+            padding: 2px;
         }
-        .playing-text {
-            color: #007bff;
-            font-weight: bold;
+        #status .playing-text {
+            color: var(--bs-primary);
+            font-weight: 500;
+        }
+        .list-group-item.active {
+             background-color: var(--bs-primary);
+             border-color: var(--bs-primary);
+        }
+        .list-group-item-action:hover {
+            background-color: rgba(255,255,255,0.05);
         }
     </style>
 </head>
@@ -53,11 +56,12 @@
     <div class="container-fluid mt-3">
         <div class="row">
             <!-- Video Player Column -->
-            <div class="col-lg-8">
-                <div id="player-container" class="border rounded">
+            <div class="col-lg-8" id="player-column">
+                <div id="video-container" class="border rounded overflow-hidden">
                     <video id="videoPlayer" controls autoplay poster="https://i.imgur.com/gC5sJd7.png"></video>
                 </div>
-                 <h3 id="status" class="mt-3">Welcome! Select a channel to start watching.</h3>
+                <h3 id="status" class="mt-3">Welcome! Select a channel to start.</h3>
+                <p class="text-body-secondary small">Click twice if channel not play ! | Made by - Siam3310</p>
             </div>
 
             <!-- Channel List Column -->
@@ -66,7 +70,7 @@
                     <input type="text" id="search-input" class="form-control" placeholder="Search for a channel...">
                 </div>
                 <div id="channel-list-container" class="border rounded">
-                    <div id="channel-list" class="list-group">
+                    <div id="channel-list" class="list-group list-group-flush">
                         <!-- Channels will be loaded here dynamically -->
                         <div class="p-5 text-center" id="loader">
                             <div class="spinner-border text-primary" role="status">
@@ -80,116 +84,99 @@
         </div>
     </div>
 
-    <!-- Bootstrap JS Bundle -->
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    
     <script>
         const video = document.getElementById('videoPlayer');
         const statusElement = document.getElementById('status');
         const channelListElement = document.getElementById('channel-list');
         const searchInput = document.getElementById('search-input');
         const loader = document.getElementById('loader');
-        
+        const channelListContainer = document.getElementById('channel-list-container');
+
         const M3U_URL = 'https://raw.githubusercontent.com/siam3310/cdn-tv/refs/heads/main/siamcdnplaylist.m3u';
         let hls;
-        let channels = [];
+        let allChannels = [];
+        let currentlyDisplayedChannels = [];
+        const CHANNELS_PER_PAGE = 50;
+        let currentPage = 1;
+        let activeChannelName = null;
 
-        // --- 1. Play a selected channel ---
+        // --- 1. Play a selected channel (Robust Version) ---
         function playChannel(channelName) {
-            // The API endpoint is on the same host, under /api/proxy
             const streamUrl = `/api/proxy?channel=${encodeURIComponent(channelName)}`;
             statusElement.innerHTML = `Loading: <span class="playing-text">${channelName}</span>`;
-
-            console.log(`Attempting to play: ${streamUrl}`);
+            activeChannelName = channelName;
 
             if (Hls.isSupported()) {
                 if (hls) {
                     hls.destroy();
                 }
                 hls = new Hls({
-                    // Add a timeout for fragment loading
                      fragLoadingMaxRetry: 4,
                      fragLoadingMaxRetryTimeout: 20000,
                 });
                 hls.loadSource(streamUrl);
                 hls.attachMedia(video);
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    video.play();
+                    video.play().catch(e => console.error("Play被浏览器阻止:", e));
                     statusElement.innerHTML = `Now Playing: <span class="playing-text">${channelName}</span>`;
                 });
                 hls.on(Hls.Events.ERROR, (event, data) => {
                     if (data.fatal) {
-                        console.error('Fatal HLS error:', data);
-                        statusElement.textContent = `Error loading stream: ${data.details}.`;
+                        statusElement.textContent = `Error: ${data.details}. Try another channel.`;
                     }
                 });
+                // Force play after a short delay to overcome browser hesitation
+                setTimeout(() => video.play().catch(e => {}), 500);
+
             } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                 video.src = streamUrl;
-                video.addEventListener('loadedmetadata', () => {
-                    video.play();
-                    statusElement.innerHTML = `Now Playing: <span class="playing-text">${channelName}</span>`;
-                });
+                video.play().catch(e => console.error("Play was blocked by browser:", e));
             }
-
-            // Update active state in the channel list
-            document.querySelectorAll('.list-group-item').forEach(item => {
-                if (item.dataset.channelName === channelName) {
-                    item.classList.add('active');
-                } else {
-                    item.classList.remove('active');
-                }
-            });
+            updateActiveChannel();
         }
 
-        // --- 2. Fetch and Display Channels ---
-        async function loadChannels() {
+        // --- 2. Fetch and Parse ALL Channels ---
+        async function fetchAndParseM3U() {
             try {
                 const response = await fetch(M3U_URL);
                 if (!response.ok) throw new Error('Network response was not ok');
                 const m3uText = await response.text();
-
                 const lines = m3uText.split(/\r\n|\n|\r/);
                 
+                let channels = [];
                 for (let i = 0; i < lines.length; i++) {
                     if (lines[i].startsWith('#EXTINF:')) {
                         const infoLine = lines[i];
                         const nameMatch = infoLine.split(',').pop();
                         const logoMatch = infoLine.match(/tvg-logo="([^"]+)"/);
-                        const groupMatch = infoLine.match(/group-title="([^"]+)"/);
-
-                        const channelName = nameMatch.trim();
-                        const channelLogo = logoMatch ? logoMatch[1] : 'https://i.imgur.com/Nl4aZCF.png'; // Default logo
-                        const channelGroup = groupMatch ? groupMatch[1] : 'General';
-                        
-                        if (channelName) {
-                            channels.push({ name: channelName, logo: channelLogo, group: channelGroup });
+                        if (nameMatch) {
+                            channels.push({ 
+                                name: nameMatch.trim(), 
+                                logo: logoMatch ? logoMatch[1] : 'https://i.imgur.com/Nl4aZCF.png'
+                            });
                         }
                     }
                 }
-                renderChannels(channels);
+                allChannels = channels;
                 loader.style.display = 'none';
+                renderInitialChannels();
 
             } catch (error) {
                 console.error('Failed to load M3U playlist:', error);
-                loader.innerHTML = '<p class="text-danger">Failed to load channels.</p>';
+                loader.innerHTML = '<div class="p-3 text-danger">Failed to load channels.</div>';
             }
         }
         
-        // --- 3. Render Channels to the list ---
+        // --- 3. Render Channels to the DOM ---
         function renderChannels(channelsToRender) {
-             channelListElement.innerHTML = ''; // Clear existing list
-             if (channelsToRender.length === 0) {
-                 channelListElement.innerHTML = '<p class="text-center p-3">No channels found.</p>';
-                 return;
-             }
              channelsToRender.forEach(channel => {
                 const item = document.createElement('a');
                 item.className = 'list-group-item list-group-item-action d-flex align-items-center';
                 item.dataset.channelName = channel.name;
-                item.href = '#'; // for bootstrap styling
+                item.href = '#';
                 item.innerHTML = `
-                    <img src="${channel.logo}" class="channel-logo" alt="${channel.name} logo">
-                    <span>${channel.name}</span>
+                    <img src="${channel.logo}" class="channel-logo" alt="${channel.name} logo" onerror="this.src='https://i.imgur.com/Nl4aZCF.png';">
+                    <span class="flex-grow-1">${channel.name}</span>
                 `;
                 item.addEventListener('click', (e) => {
                     e.preventDefault();
@@ -197,19 +184,63 @@
                 });
                 channelListElement.appendChild(item);
             });
+            updateActiveChannel();
+        }
+
+        function renderInitialChannels() {
+            channelListElement.innerHTML = '';
+            currentPage = 1;
+            const channelsToRender = allChannels.slice(0, CHANNELS_PER_PAGE);
+            currentlyDisplayedChannels = channelsToRender;
+            renderChannels(channelsToRender);
+        }
+
+        function appendMoreChannels() {
+            if (searchInput.value) return; // Don't append if searching
+            const startIndex = currentPage * CHANNELS_PER_PAGE;
+            const endIndex = startIndex + CHANNELS_PER_PAGE;
+            if (startIndex >= allChannels.length) return; // No more channels
+            
+            const newChannels = allChannels.slice(startIndex, endIndex);
+            currentlyDisplayedChannels.push(...newChannels);
+            renderChannels(newChannels); // only render new ones
+            currentPage++;
+        }
+
+        function updateActiveChannel() {
+             document.querySelectorAll('.list-group-item').forEach(item => {
+                item.classList.toggle('active', item.dataset.channelName === activeChannelName);
+            });
         }
         
-        // --- 4. Search/Filter Functionality ---
-        searchInput.addEventListener('input', (e) => {
-            const searchTerm = e.target.value.toLowerCase();
-            const filteredChannels = channels.filter(channel => 
+        // --- 4. Search and Infinite Scroll Listeners ---
+        searchInput.addEventListener('input', () => {
+            const searchTerm = searchInput.value.toLowerCase();
+            channelListContainer.scrollTop = 0; // Scroll to top
+
+            if (!searchTerm) {
+                renderInitialChannels();
+                return;
+            }
+            const filteredChannels = allChannels.filter(channel => 
                 channel.name.toLowerCase().includes(searchTerm)
             );
+            channelListElement.innerHTML = ''; // Clear list before rendering search results
             renderChannels(filteredChannels);
         });
 
+        channelListContainer.addEventListener('scroll', () => {
+            // If user is searching, don't infinitely scroll
+            if (searchInput.value) return;
+
+            const { scrollTop, scrollHeight, clientHeight } = channelListContainer;
+            if (scrollTop + clientHeight >= scrollHeight - 300) { // load 300px before end
+                appendMoreChannels();
+            }
+        });
+
         // --- Initial Load ---
-        document.addEventListener('DOMContentLoaded', loadChannels);
+        document.addEventListener('DOMContentLoaded', fetchAndParseM3U);
 
     </script>
 </body>

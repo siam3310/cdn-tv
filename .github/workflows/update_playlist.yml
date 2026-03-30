@@ -2,7 +2,7 @@ name: Update M3U Playlist
 
 on:
   schedule:
-    - cron: '*/40 * * * *'  # প্রতি 40 মিনিটে রান করার কমান্ড
+    - cron: '*/25 * * * *'  # প্রতি 40 মিনিটে রান করার কমান্ড
   workflow_dispatch:      # ম্যানুয়ালি রান করার অপশন
 
 jobs:
